@@ -214,15 +214,6 @@ if st.button("예측하기"):
     predicted_audience = best_audience_model.predict(input_data)[0]
     predicted_sales = best_sales_model.predict(input_data)[0]
 
-    if predicted_audience >= 3000000:
-        grade = "대흥행"
-    elif predicted_audience >= 1000000:
-        grade = "흥행"
-    elif predicted_audience >= 100000:
-        grade = "보통"
-    else:
-        grade = "저조"
-
     st.subheader("2. 예측 결과")
 
     col1, col2 = st.columns(2)
@@ -239,16 +230,12 @@ if st.button("예측하기"):
             value=f"{predicted_sales:,.0f}원"
         )
 
-    st.success(f"예상 흥행 등급: {grade}")
-
     st.write("### 결과 해석")
     st.write(f"""
     입력된 개봉 첫날 성과를 기준으로,  
     이 영화는 최종적으로 약 **{predicted_audience:,.0f}명**의 관객을 모을 것으로 예측됩니다.  
 
-    또한 최종 매출액은 약 **{predicted_sales:,.0f}원**으로 예측됩니다.  
-
-    따라서 예상 흥행 등급은 **{grade}**입니다.
+    또한 최종 매출액은 약 **{predicted_sales:,.0f}원**으로 예측됩니다.
     """)
 
 
