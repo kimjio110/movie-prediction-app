@@ -4,8 +4,7 @@ import numpy as np
 
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
 st.set_page_config(
@@ -18,7 +17,7 @@ st.title("🎬 영화 최종 성과 예측 시뮬레이터")
 
 st.write("""
 영화의 **개봉 첫날 정보**를 입력하면  
-기계학습 모델을 활용하여 **최종 관객수**와 **최종 매출액**을 예측합니다.
+**다중선형회귀모형**을 활용하여 **최종 관객수, 최종 매출액, 최종 상영횟수**를 예측합니다.
 """)
 
 
@@ -41,7 +40,7 @@ except FileNotFoundError:
 
 
 # ==============================
-# 2. 변수 설정
+# 2. 입력변수와 목표변수 설정
 # ==============================
 
 x_columns = [
@@ -54,15 +53,41 @@ x_columns = [
 target_audience = "최종 관객수"
 target_sales = "최종 매출액"
 
+# 엑셀 파일마다 상영횟수 컬럼명이 다를 수 있어서 자동으로 찾게 함
+show_target_candidates = [
+    "최종 상영횟수",
+    "총상영횟수",
+    "총 상영횟수",
+    "누적 상영횟수",
+    "최종 누적 상영횟수"
+]
+
+target_show = None
+
+for col in show_target_candidates:
+    if col in df.columns:
+        target_show = col
+        break
+
+if target_show is None:
+    st.error("최종 상영횟수 컬럼을 찾을 수 없습니다. 엑셀에 '총상영횟수' 또는 '최종 상영횟수' 컬럼이 있는지 확인하세요.")
+    st.write("현재 엑셀 컬럼명:")
+    st.write(df.columns)
+    st.stop()
+
 
 try:
-    data = df[x_columns + [target_audience, target_sales]].copy()
+    data = df[x_columns + [target_audience, target_sales, target_show]].copy()
 except KeyError:
     st.error("엑셀 파일의 컬럼명이 코드와 다릅니다.")
     st.write("현재 엑셀 컬럼명:")
     st.write(df.columns)
     st.stop()
 
+
+# ==============================
+# 3. 데이터 전처리
+# ==============================
 
 data = data.dropna()
 
@@ -72,100 +97,70 @@ for col in data.columns:
 data = data.dropna()
 
 X = data[x_columns]
+
 y_audience = data[target_audience]
 y_sales = data[target_sales]
+y_show = data[target_show]
 
 
 # ==============================
-# 3. 모델 학습
+# 4. 다중선형회귀 모델 학습 함수
 # ==============================
 
 @st.cache_resource
-def train_models(X, y_audience, y_sales):
-    X_train_a, X_test_a, y_train_a, y_test_a = train_test_split(
-        X, y_audience, test_size=0.2, random_state=42
-    )
-
-    X_train_s, X_test_s, y_train_s, y_test_s = train_test_split(
-        X, y_sales, test_size=0.2, random_state=42
-    )
-
-    linear_audience = LinearRegression()
-    rf_audience = RandomForestRegressor(
-        n_estimators=300,
+def train_linear_model(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.2,
         random_state=42
     )
 
-    linear_sales = LinearRegression()
-    rf_sales = RandomForestRegressor(
-        n_estimators=300,
-        random_state=42
-    )
+    model = LinearRegression()
+    model.fit(X_train, y_train)
 
-    linear_audience.fit(X_train_a, y_train_a)
-    rf_audience.fit(X_train_a, y_train_a)
+    y_pred = model.predict(X_test)
 
-    pred_linear_a = linear_audience.predict(X_test_a)
-    pred_rf_a = rf_audience.predict(X_test_a)
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
 
-    rmse_linear_a = np.sqrt(mean_squared_error(y_test_a, pred_linear_a))
-    rmse_rf_a = np.sqrt(mean_squared_error(y_test_a, pred_rf_a))
+    # 최종 예측용으로 전체 데이터 다시 학습
+    model.fit(X, y)
 
-    linear_sales.fit(X_train_s, y_train_s)
-    rf_sales.fit(X_train_s, y_train_s)
-
-    pred_linear_s = linear_sales.predict(X_test_s)
-    pred_rf_s = rf_sales.predict(X_test_s)
-
-    rmse_linear_s = np.sqrt(mean_squared_error(y_test_s, pred_linear_s))
-    rmse_rf_s = np.sqrt(mean_squared_error(y_test_s, pred_rf_s))
-
-    if rmse_linear_a < rmse_rf_a:
-        best_audience_model = linear_audience
-        audience_model_name = "선형회귀"
-    else:
-        best_audience_model = rf_audience
-        audience_model_name = "랜덤포레스트"
-
-    if rmse_linear_s < rmse_rf_s:
-        best_sales_model = linear_sales
-        sales_model_name = "선형회귀"
-    else:
-        best_sales_model = rf_sales
-        sales_model_name = "랜덤포레스트"
-
-    best_audience_model.fit(X, y_audience)
-    best_sales_model.fit(X, y_sales)
-
-    results = {
-        "관객수_선형회귀_RMSE": rmse_linear_a,
-        "관객수_랜덤포레스트_RMSE": rmse_rf_a,
-        "매출액_선형회귀_RMSE": rmse_linear_s,
-        "매출액_랜덤포레스트_RMSE": rmse_rf_s,
-        "최종_관객수_모델": audience_model_name,
-        "최종_매출액_모델": sales_model_name
-    }
-
-    return best_audience_model, best_sales_model, results
+    return model, mae, rmse, r2
 
 
-best_audience_model, best_sales_model, results = train_models(X, y_audience, y_sales)
+audience_model, audience_mae, audience_rmse, audience_r2 = train_linear_model(X, y_audience)
+sales_model, sales_mae, sales_rmse, sales_r2 = train_linear_model(X, y_sales)
+show_model, show_mae, show_rmse, show_r2 = train_linear_model(X, y_show)
 
 
 # ==============================
-# 4. 사이드바
+# 5. 사이드바
 # ==============================
 
 st.sidebar.header("데이터 정보")
 st.sidebar.write(f"사용 데이터 수: {len(data)}개")
 
-st.sidebar.header("선택된 모델")
-st.sidebar.write(f"관객수 예측 모델: {results['최종_관객수_모델']}")
-st.sidebar.write(f"매출액 예측 모델: {results['최종_매출액_모델']}")
+st.sidebar.header("사용 알고리즘")
+st.sidebar.write("다중선형회귀")
+st.sidebar.write("MULTIPLE LINEAR REGRESSION")
+
+st.sidebar.header("입력변수")
+st.sidebar.write("- 첫날 스크린수")
+st.sidebar.write("- 첫날 상영횟수")
+st.sidebar.write("- 첫날 관객수")
+st.sidebar.write("- 첫날 매출액")
+
+st.sidebar.header("목표변수")
+st.sidebar.write("- 최종 관객수")
+st.sidebar.write("- 최종 매출액")
+st.sidebar.write(f"- {target_show}")
 
 
 # ==============================
-# 5. 사용자 입력
+# 6. 사용자 입력
 # ==============================
 
 st.subheader("1. 개봉 첫날 정보 입력")
@@ -200,7 +195,7 @@ first_day_sales = st.number_input(
 
 
 # ==============================
-# 6. 예측
+# 7. 예측
 # ==============================
 
 if st.button("예측하기"):
@@ -211,12 +206,18 @@ if st.button("예측하기"):
         "첫날 매출액": [first_day_sales]
     })
 
-    predicted_audience = best_audience_model.predict(input_data)[0]
-    predicted_sales = best_sales_model.predict(input_data)[0]
+    predicted_audience = audience_model.predict(input_data)[0]
+    predicted_sales = sales_model.predict(input_data)[0]
+    predicted_show = show_model.predict(input_data)[0]
+
+    # 음수 예측 방지
+    predicted_audience = max(0, predicted_audience)
+    predicted_sales = max(0, predicted_sales)
+    predicted_show = max(0, predicted_show)
 
     st.subheader("2. 예측 결과")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric(
@@ -230,25 +231,36 @@ if st.button("예측하기"):
             value=f"{predicted_sales:,.0f}원"
         )
 
+    with col3:
+        st.metric(
+            label="예측 최종 상영횟수",
+            value=f"{predicted_show:,.0f}회"
+        )
+
     st.write("### 결과 해석")
     st.write(f"""
-    입력된 개봉 첫날 성과를 기준으로,  
+    입력된 개봉 첫날 정보를 기준으로,  
     이 영화는 최종적으로 약 **{predicted_audience:,.0f}명**의 관객을 모을 것으로 예측됩니다.  
 
-    또한 최종 매출액은 약 **{predicted_sales:,.0f}원**으로 예측됩니다.
+    최종 매출액은 약 **{predicted_sales:,.0f}원**으로 예측되며,  
+    최종 상영횟수는 약 **{predicted_show:,.0f}회**로 예측됩니다.
     """)
 
 
+# ==============================
+# 8. 모델 성능 확인
+# ==============================
+
 with st.expander("모델 성능 확인하기"):
+    st.write("모든 예측은 다중선형회귀모형을 사용했습니다.")
+    st.write("MAE와 RMSE는 낮을수록 좋고, R²는 높을수록 좋습니다.")
+
     performance_df = pd.DataFrame({
-        "예측 대상": ["최종 관객수", "최종 관객수", "최종 매출액", "최종 매출액"],
-        "모델": ["선형회귀", "랜덤포레스트", "선형회귀", "랜덤포레스트"],
-        "RMSE": [
-            results["관객수_선형회귀_RMSE"],
-            results["관객수_랜덤포레스트_RMSE"],
-            results["매출액_선형회귀_RMSE"],
-            results["매출액_랜덤포레스트_RMSE"]
-        ]
+        "예측 대상": ["최종 관객수", "최종 매출액", "최종 상영횟수"],
+        "사용 알고리즘": ["다중선형회귀", "다중선형회귀", "다중선형회귀"],
+        "MAE": [audience_mae, sales_mae, show_mae],
+        "RMSE": [audience_rmse, sales_rmse, show_rmse],
+        "R²": [audience_r2, sales_r2, show_r2]
     })
 
     st.dataframe(performance_df)
